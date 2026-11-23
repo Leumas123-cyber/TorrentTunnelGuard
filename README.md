@@ -2,12 +2,12 @@
 
 Unofficial macOS menu-bar helper (Apple Silicon and Intel, macOS 13+) that keeps [qBittorrent](https://www.qbittorrent.org) bound to the current VPN tunnel ([Surfshark](https://surfshark.com), plus unofficial detection for Mullvad, Proton VPN, or any WireGuard).
 
-**Current version is 1.4.** Download it from the [latest GitHub Release](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) — pick **one** DMG. Official images are built by **GitHub Actions** on the `v1.4` tag, not uploaded from a personal Mac:
+**Current version is 1.5.** Download it from the [latest GitHub Release](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) — pick **one** DMG. Official images are built by **GitHub Actions** on the `v1.5` tag, not uploaded from a personal Mac:
 
 | File | Who it is for |
 |---|---|
-| [`SurfsharkGuard-1.4-arm64.dmg`](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) | Apple Silicon only |
-| [`SurfsharkGuard-1.4-universal.dmg`](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) | Apple Silicon or Intel |
+| [`SurfsharkGuard-1.5-arm64.dmg`](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) | Apple Silicon only |
+| [`SurfsharkGuard-1.5-universal.dmg`](https://github.com/Leumas123-cyber/surfshark-guard/releases/latest) | Apple Silicon or Intel |
 
 Same app, two separate binaries.
 
@@ -29,6 +29,15 @@ This app watches the tunnel and rewrites qBittorrent’s interface binding so yo
 - **No warranty.** MIT already says this. I’ll say it again: I vibe-coded this. I do not really know, in a professional sense, that every path is correct. Use at your own risk. If it fails, fix it or delete it.
 - **Not legal advice.** This README is not a lawyer. If you need one, get one.
 
+## What’s new in 1.5
+
+- **Transmission and Deluge support.** Pick your torrent app in Settings. qBittorrent keeps working as before. Transmission is bound by its IPv4 bind address (applied after a quit), Deluge live through its Web UI or via `core.conf`. Both get "pause all" when the VPN drops.
+- **History window.** The last 200 events (tunnel up/down/changed, status changes, fixes, pauses, errors) are kept and shown in a new History window from the menu.
+- **More notifications.** Optional notices when the VPN connects, the tunnel changes (e.g. `utun3 → utun5`) or the torrent app is rebound. The "tunnel down" alert now names the lost tunnel. Can be turned off in Settings.
+- **Leak test.** New menu item that compares your public IP through the VPN tunnel with the one through Wi‑Fi/Ethernet and tells you whether they differ.
+- **Port forwarding (NAT-PMP).** Optional, off by default. For VPNs that forward a port over NAT-PMP (e.g. Proton VPN P2P servers), the forwarded port is requested, renewed every 45 s and set as qBittorrent's listening port.
+- CI and release builds now run on GitHub's `macos-15` runner.
+
 ## What’s in 1.4
 
 - Two Release DMGs (arm64-only, and universal), built on GitHub Actions
@@ -43,7 +52,7 @@ This app watches the tunnel and rewrites qBittorrent’s interface binding so yo
 - IPv6 leak hint, setup checklist, more VPN names, app icon
 - In-app check against GitHub Releases (download page only)
 
-Older public tags are **v1.1**, **v1.2**, and **v1.3**. Use **v1.4**.
+Older public tags are **v1.1** to **v1.4**. Use **v1.5**.
 
 ## First-run on a downloaded DMG
 
@@ -57,10 +66,10 @@ The DMG is ad-hoc signed (no paid Apple Developer ID / notarization). macOS Gate
 xattr -dr com.apple.quarantine /Applications/SurfsharkGuard.app
 ```
 
-1.4 ships **two** DMGs (do not mix them up):
+1.5 ships **two** DMGs (do not mix them up):
 
-- `SurfsharkGuard-1.4-arm64.dmg` — Apple Silicon only
-- `SurfsharkGuard-1.4-universal.dmg` — Apple Silicon + Intel (`arm64` + `x86_64`)
+- `SurfsharkGuard-1.5-arm64.dmg` — Apple Silicon only
+- `SurfsharkGuard-1.5-universal.dmg` — Apple Silicon + Intel (`arm64` + `x86_64`)
 
 macOS 13 or newer. The app inside either image is still named **Surfshark Guard**.
 
@@ -172,7 +181,7 @@ cd surfshark-guard
 
 That script builds **two apps**: an arm64-only bundle and a universal (`lipo`) bundle. It strips debug info, remaps source paths so the binaries should not contain the builder’s `/Users/…` path, and makes two DMGs. If a Developer ID Application identity is available (or `CODESIGN_IDENTITY` is set), it signs with the hardened runtime and a trusted timestamp; otherwise it falls back to ad-hoc signing.
 
-A version tag (`git tag v1.4 && git push origin v1.4`) runs the same script on GitHub’s `macos-15` runner and attaches both DMGs plus SHA-256 checksums to that Release. You do not need to upload files from your laptop. Manual release runs always build the exact existing tag selected in the workflow.
+A version tag (`git tag v1.5 && git push origin v1.5`) runs the same script on GitHub’s `macos-15` runner and attaches both DMGs plus SHA-256 checksums to that Release. You do not need to upload files from your laptop. Manual release runs always build the exact existing tag selected in the workflow.
 
 ### Optional Developer ID signing and notarization
 
