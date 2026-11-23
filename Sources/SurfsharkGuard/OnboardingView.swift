@@ -65,7 +65,7 @@ struct OnboardingView: View {
                         Label("Test Web UI", systemImage: "network")
                     }
                 }
-                .disabled(!state.webuiEnabled || state.webuiUser.isEmpty
+                .disabled(!state.webuiEnabled || !state.remoteCredentialsReady
                           || isTestingLogin)
                 Spacer()
                 Button {
@@ -101,7 +101,8 @@ struct OnboardingView: View {
             row(ok: state.snapshot?.tunnel != nil, title: "Tunnel is up",
                 detail: state.snapshot?.tunnel.map { $0.iface } ?? "Connect the VPN as a full tunnel")
             row(ok: localhostOK, title: "Web UI on this Mac",
-                detail: localhostOK ? state.webuiURL : "Enable qBittorrent Web UI on 127.0.0.1")
+                detail: localhostOK ? state.webuiURL
+                    : "Enable the \(state.torrentClient.title) \(state.torrentClient.remoteTitle) on 127.0.0.1")
             row(ok: loginOK, title: "Web UI login",
                 detail: loginOK ? "OK" : (state.loginTestResult ?? "Click “Test Web UI login”"))
         }

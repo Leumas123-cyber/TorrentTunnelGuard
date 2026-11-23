@@ -132,10 +132,16 @@ enum Detector {
     }
 
     static func qbittorrentRunning() -> Bool {
-        let out = Shell.run("/usr/bin/pgrep", ["-ifl", "qbittorrent"])
-        return out.split(separator: "\n").contains { line in
-            let lower = line.lowercased()
-            return lower.contains("qbittorrent") && !lower.contains("surfshark")
-        }
+        clientRunning(.qbittorrent)
+    }
+
+    static func clientProcessText(_ client: TorrentClient) -> String {
+        Shell.run("/usr/bin/pgrep", ["-ifl", client.processNeedles.joined(separator: "|")])
+    }
+
+    static func clientRunning(_ client: TorrentClient,
+                              processText: String? = nil) -> Bool {
+        let out = processText ?? clientProcessText(client)
+        return out.split(separator: "\n").contains { client.matchesProcessLine(String($0)) }
     }
 }

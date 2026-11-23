@@ -96,6 +96,22 @@ expect(MenuBarTooltip.text(tunnel: "utun14", qbInterface: "utun14") == "utun14 Â
 expect(MenuBarTooltip.text(tunnel: "utun14", qbInterface: "en0").contains("leak risk"), "wrong-binding tooltip")
 expect(MenuBarTooltip.text(tunnel: nil, qbInterface: "en0") == "No VPN tunnel", "no-tunnel tooltip")
 
+print("== torrent clients ==")
+let tifaces = IfconfigParser.parse(fixtureIfconfig)
+let tr = ClientBinding.transmission(bindAddress: "10.14.0.2", ifaces: tifaces)
+expect(tr.iface == "utun9" && tr.addr == "10.14.0.2", "transmission bind address â†’ utun9")
+expect(ClientBinding.transmission(bindAddress: "0.0.0.0", ifaces: tifaces).iface == nil, "transmission unbound")
+let trText = TransmissionSettings.applyBindAddress("10.14.0.2", to: "{\n    \"bind-address-ipv4\": \"0.0.0.0\",\n    \"ratio-limit\": 2.0\n}\n")
+expect(TransmissionSettings.bindAddress(in: trText) == "10.14.0.2" && trText.contains("2.0"), "transmission settings edit")
+let dconf = DelugeCoreConf.applyBinding(interface: "utun9", address: "10.14.0.2",
+    to: "{\n    \"file\": 1,\n    \"format\": 1\n}{\n    \"listen_interface\": \"\",\n    \"max_upload_speed\": -1.0\n}")
+let dread = DelugeCoreConf.binding(in: dconf)
+expect(dread.outgoing == "utun9" && dread.listen == "10.14.0.2", "deluge core.conf edit")
+let dres = ClientBinding.deluge(outgoing: "utun9", listen: "", ifaces: tifaces)
+expect(dres.iface == "utun9" && dres.addr == "0.0.0.0", "deluge empty listen is not sealed")
+expect(TorrentClient.deluge.matchesProcessLine("812 /usr/bin/python3 /usr/local/bin/deluged"), "deluged counts")
+expect(!TorrentClient.deluge.matchesProcessLine("813 /usr/local/bin/deluge-web"), "deluge-web alone does not")
+
 print("== update check ==")
 expect(UpdateCheck.normalize("v1.3") == "1.3", "strip v prefix")
 expect(UpdateCheck.normalize("1.3") == "1.3", "already bare")

@@ -26,9 +26,11 @@ enum GuardStatus {
         }
     }
 
-    var headline: String {
+    var headline: String { headline(for: .qbittorrent) }
+
+    func headline(for client: TorrentClient) -> String {
         switch self {
-        case .ok: return "All sealed — qBittorrent is on the tunnel"
+        case .ok: return "All sealed — \(client.title) is on the tunnel"
         case .wrongBinding: return "Wrong binding — leak risk"
         case .noTunnel: return "No VPN tunnel"
         }
@@ -36,6 +38,7 @@ enum GuardStatus {
 }
 
 struct Snapshot {
+    var client: TorrentClient = .qbittorrent
     var tunnel: TunnelInfo?
     var qbRunning: Bool
     var qbInterface: String?
@@ -59,7 +62,8 @@ struct Snapshot {
 
     /// Short hover text for the menu-bar icon — no need to open the window.
     var menuBarTooltip: String {
-        MenuBarTooltip.text(tunnel: tunnel?.iface, qbInterface: qbInterface)
+        MenuBarTooltip.text(tunnel: tunnel?.iface, qbInterface: qbInterface,
+                            clientName: client.shortName)
     }
 }
 
@@ -148,26 +152,46 @@ final class GuardState: ObservableObject {
     @Published var watchInterval: Double {
         didSet { defaults.set(watchInterval, forKey: "watchInterval"); rescheduleTimer() }
     }
+    /// Which torrent app is guarded. The Web UI / RPC fields below hold the
+    /// settings of this client; each client keeps its own.
+    @Published var torrentClient: TorrentClient {
+        didSet {
+            guard torrentClient != oldValue else { return }
+            defaults.set(torrentClient.rawValue, forKey: "torrentClient")
+            loadRemoteSettings()
+            loginTestResult = nil
+            lastAction = nil
+            lastError = nil
+            Task { await checkNow(notifyAbout: false) }
+        }
+    }
     @Published var webuiEnabled: Bool {
-        didSet { defaults.set(webuiEnabled, forKey: "webuiEnabled") }
+        didSet { defaults.set(webuiEnabled, forKey: torrentClient.defaultsKey("webuiEnabled")) }
     }
     @Published var webuiURL: String {
-        didSet { defaults.set(webuiURL, forKey: "webuiURL") }
+        didSet { defaults.set(webuiURL, forKey: torrentClient.defaultsKey("webuiURL")) }
     }
     @Published var webuiUser: String {
-        didSet { defaults.set(webuiUser, forKey: "webuiUser") }
+        didSet { defaults.set(webuiUser, forKey: torrentClient.defaultsKey("webuiUser")) }
     }
     @Published var webuiPass: String {
         didSet {
             guard !isHydrating else { return }
+            let account = torrentClient.keychainAccount
             if webuiPass.isEmpty {
-                KeychainStore.deletePassword()
+                KeychainStore.deletePassword(service: KeychainStore.service, account: account)
             } else {
-                if !KeychainStore.savePassword(webuiPass) {
-                    lastError = "Could not save the Web UI password in Keychain."
+                if !KeychainStore.savePassword(webuiPass, service: KeychainStore.service,
+                                               account: account) {
+                    lastError = "Could not save the \(torrentClient.remoteTitle) password in Keychain."
                 }
             }
         }
+    }
+
+    /// Credentials are complete enough to try the selected client's remote API.
+    var remoteCredentialsReady: Bool {
+        torrentClient.credentialsReady(user: webuiUser, password: webuiPass)
     }
     @Published var vpnProvider: VPNProvider {
         didSet { defaults.set(vpnProvider.rawValue, forKey: "vpnProvider") }
@@ -199,7 +223,7 @@ final class GuardState: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private var timer: Timer?
-    private var qBQuitObserver: Any?
+    private var clientQuitObserver: Any?
     private var powerObserver: Any?
     private var pathMonitor: NWPathMonitor?
     private var pathDebounce: DispatchWorkItem?
@@ -217,10 +241,17 @@ final class GuardState: ObservableObject {
         notifications = defaults.object(forKey: "notifications") as? Bool ?? true
         tunnelChangeNotifications = defaults.object(forKey: "tunnelChangeNotifications") as? Bool ?? true
         watchInterval = defaults.object(forKey: "watchInterval") as? Double ?? 5
-        webuiEnabled = defaults.bool(forKey: "webuiEnabled")
-        webuiURL = defaults.string(forKey: "webuiURL") ?? "http://127.0.0.1:8080"
-        webuiUser = defaults.string(forKey: "webuiUser") ?? ""
-        webuiPass = KeychainStore.migrateFromUserDefaults(defaults)
+        let client = TorrentClient(rawValue: defaults.string(forKey: "torrentClient") ?? "")
+            ?? .qbittorrent
+        torrentClient = client
+        webuiEnabled = defaults.bool(forKey: client.defaultsKey("webuiEnabled"))
+        webuiURL = defaults.string(forKey: client.defaultsKey("webuiURL")) ?? client.defaultRemoteURL
+        webuiUser = defaults.string(forKey: client.defaultsKey("webuiUser")) ?? ""
+        let legacyPass = KeychainStore.migrateFromUserDefaults(defaults)
+        webuiPass = client == .qbittorrent
+            ? legacyPass
+            : KeychainStore.loadPassword(service: KeychainStore.service,
+                                         account: client.keychainAccount) ?? ""
         vpnProvider = VPNProvider(rawValue: defaults.string(forKey: "vpnProvider") ?? "") ?? .auto
         pauseOnDrop = defaults.object(forKey: "pauseOnDrop") as? Bool ?? true
         onboardingDone = defaults.bool(forKey: "onboardingDone")
@@ -230,16 +261,19 @@ final class GuardState: ObservableObject {
         natpmpGateway = defaults.string(forKey: "natpmpGateway") ?? ""
         isHydrating = false
 
-        qBQuitObserver = NotificationCenter.default.addObserver(
+        clientQuitObserver = NotificationCenter.default.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil, queue: .main
         ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
-                    as? NSRunningApplication,
-                  app.bundleIdentifier?.lowercased().contains("qbittorrent") == true
+                    as? NSRunningApplication
             else { return }
+            let bundleID = app.bundleIdentifier
+            let name = app.localizedName
             let state = self
             Task { @MainActor in
+                guard state?.torrentClient.matchesApp(bundleID: bundleID, name: name) == true
+                else { return }
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 await state?.checkNow(notifyAbout: false)
                 if state?.autoFix == true {
@@ -268,6 +302,18 @@ final class GuardState: ObservableObject {
         startPathMonitor()
         if notifications { askNotificationPermission() }
         scheduleUpdateCheck()
+    }
+
+    /// Pulls the selected client's Web UI / RPC settings into the shared fields.
+    private func loadRemoteSettings() {
+        let client = torrentClient
+        isHydrating = true
+        webuiEnabled = defaults.bool(forKey: client.defaultsKey("webuiEnabled"))
+        webuiURL = defaults.string(forKey: client.defaultsKey("webuiURL")) ?? client.defaultRemoteURL
+        webuiUser = defaults.string(forKey: client.defaultsKey("webuiUser")) ?? ""
+        webuiPass = KeychainStore.loadPassword(service: KeychainStore.service,
+                                               account: client.keychainAccount) ?? ""
+        isHydrating = false
     }
 
     func scheduleUpdateCheck() {
@@ -375,8 +421,11 @@ final class GuardState: ObservableObject {
         let user = webuiUser
         let pass = webuiPass
         let provider = vpnProvider
+        let client = torrentClient
+        let credentialsReady = remoteCredentialsReady
         return await Task.detached(priority: .utility) {
             let ifconfigText = Shell.run("/sbin/ifconfig", ["-a"])
+            let ifaces = IfconfigParser.parse(ifconfigText)
             let tunnel = Detector.detect(
                 provider: provider,
                 ifconfigText: ifconfigText,
@@ -384,34 +433,34 @@ final class GuardState: ObservableObject {
                 netstatText: Shell.run("/usr/sbin/netstat", ["-rn", "-f", "inet"]),
                 processText: Shell.run("/usr/bin/pgrep", ["-ifl", provider.pgrepPattern])
             )
-            let (existing, target) = QBittorrent.findConfig()
-            var iface: String?
-            var addr: String?
-            var source: String? = nil
-            if let path = existing, let text = try? String(contentsOfFile: path,
-                                                            encoding: .utf8) {
-                (iface, addr) = IniEditor.binding(in: text)
-                if iface != nil { source = "ini" }
-            }
+            let clientProcesses = Detector.clientProcessText(client)
+            let config = ClientConfigState.read(client: client, ifaces: ifaces,
+                                                processText: clientProcesses)
+            var iface = config.iface
+            var addr = config.addr
+            var source = config.source
             var webUI: WebUIReachability = .unused
             if enabled, let probeURL {
-                webUI = await QBWebUI.probe(baseURL: probeURL)
-                if webUI == .online, !user.isEmpty {
-                    let ui = QBWebUI(baseURL: probeURL, user: user, password: pass)
-                    if await ui.login(), let live = await ui.currentBinding() {
+                webUI = await TorrentRemote.probe(client: client, baseURL: probeURL)
+                if webUI == .online, credentialsReady {
+                    let remote = TorrentRemote(client: client, baseURL: probeURL,
+                                               user: user, password: pass)
+                    if await remote.login(),
+                       let live = await remote.currentBinding(ifaces: ifaces) {
                         iface = live.iface
                         addr = live.addr ?? addr
-                        source = "web UI"
+                        source = client.remoteTitle
                     }
                 }
             }
             return Snapshot(
+                client: client,
                 tunnel: tunnel,
-                qbRunning: Detector.qbittorrentRunning(),
+                qbRunning: Detector.clientRunning(client, processText: clientProcesses),
                 qbInterface: iface,
                 qbAddress: addr,
-                configPath: existing,
-                writeTarget: target,
+                configPath: config.configPath,
+                writeTarget: config.writeTarget,
                 webUI: webUI,
                 bindingSource: source,
                 ipv6Hint: Detector.ipv6Hint(ifconfigText: ifconfigText, tunnel: tunnel?.iface),
@@ -428,45 +477,65 @@ final class GuardState: ObservableObject {
             lastError = "No tunnel — connect the VPN first."
             return false
         }
+        let client = torrentClient
+        if client != .qbittorrent, tunnel.ip == nil {
+            lastError = "The tunnel \(tunnel.iface) has no IPv4 address yet — \(client.title) binds by IP."
+            return false
+        }
 
-        if webuiEnabled, !webuiUser.isEmpty {
+        if webuiEnabled, remoteCredentialsReady, client.supportsLiveRebind {
             guard let url = WebUIURLValidator.validated(webuiURL) else {
-                lastError = "Web UI must use localhost, 127.0.0.1, or ::1."
+                lastError = "\(client.remoteTitle) must use localhost, 127.0.0.1, or ::1."
                 return false
             }
-            let ui = QBWebUI(baseURL: url, user: webuiUser, password: webuiPass)
-            if await ui.login() {
-                let address = snap.qbAddress == tunnel.ip ? snap.qbAddress : nil
-                if await ui.setInterface(tunnel.iface, address: address) {
-                    lastAction = "Web UI: binding set live to \(tunnel.iface) ✓"
+            let remote = TorrentRemote(client: client, baseURL: url,
+                                       user: webuiUser, password: webuiPass)
+            if await remote.login() {
+                let keep = snap.qbAddress == tunnel.ip ? snap.qbAddress : nil
+                if await remote.setBinding(interface: tunnel.iface, address: tunnel.ip,
+                                           keepAddress: keep) {
+                    lastAction = "\(client.remoteTitle): binding set live to \(tunnel.iface) ✓"
                     lastError = nil
                     lastFixWasLive = true
                     await checkNow()
                     return true
                 }
             }
-            lastError = "Web UI login failed (check URL / user / password)."
+            lastError = "\(client.remoteTitle) login failed (check URL / user / password)."
         }
 
         if snap.qbRunning {
-            lastError = "qBittorrent is still running — quit it (button below) or enable the Web UI."
+            if client.supportsLiveRebind {
+                lastError = "\(client.title) is still running — quit it (button below) or enable the \(client.remoteTitle)."
+            } else {
+                lastError = "\(client.title) is still running — quit it (button below); its bind address only changes on restart."
+            }
             if automatic, notifications, autoFixBlockedNotification.shouldPost() {
                 postNotification("Surfshark Guard — action needed",
-                                 "qBittorrent is on the wrong binding. Quit the app so the fix can apply.")
+                                 "\(client.title) is on the wrong binding. Quit the app so the fix can apply.")
                 lastNotifiedStatus = .wrongBinding
             }
             return false
         }
 
         do {
-            let lines = try QBittorrent.writeBinding(
-                interface: tunnel.iface, tunnelIP: tunnel.ip,
-                oldAddress: snap.qbAddress)
+            let lines: [String]
+            switch client {
+            case .qbittorrent:
+                lines = try QBittorrent.writeBinding(
+                    interface: tunnel.iface, tunnelIP: tunnel.ip,
+                    oldAddress: snap.qbAddress)
+            case .transmission:
+                lines = try TransmissionConfig.writeBindAddress(tunnel.ip ?? "")
+            case .deluge:
+                lines = try DelugeConfig.writeBinding(interface: tunnel.iface,
+                                                      address: tunnel.ip ?? "")
+            }
             lastAction = "Binding written: " + lines.joined(separator: ", ")
             lastError = nil
             if automatic {
                 postNotification("Surfshark Guard — binding fixed",
-                                 "qBittorrent is quit — binding is now \(tunnel.iface). Start it again.")
+                                 "\(client.title) is quit — binding is now \(tunnel.iface). Start it again.")
             }
             autoFixBlockedNotification.reset()
             await checkNow()
@@ -478,21 +547,29 @@ final class GuardState: ObservableObject {
     }
 
     func quitQBittorrentAndFix() async {
+        await quitClientAndFix()
+    }
+
+    func quitClientAndFix() async {
+        let client = torrentClient
         let apps = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier?.lowercased().contains("qbittorrent") == true
-                || $0.localizedName?.lowercased().contains("qbittorrent") == true
+            client.matchesApp(bundleID: $0.bundleIdentifier, name: $0.localizedName)
         }
         guard !apps.isEmpty else {
-            _ = await attemptFix(automatic: false)
+            if Detector.clientRunning(client) {
+                lastError = "\(client.title) runs as a background service — stop it, then press Check now."
+            } else {
+                _ = await attemptFix(automatic: false)
+            }
             return
         }
-        lastAction = "Quitting qBittorrent…"
+        lastAction = "Quitting \(client.title)…"
         apps.forEach { _ = $0.terminate() }
         for _ in 0..<20 {
-            if !Detector.qbittorrentRunning() { break }
+            if !Detector.clientRunning(client) { break }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        if !Detector.qbittorrentRunning() {
+        if !Detector.clientRunning(client) {
             await checkNow(notifyAbout: false)
             _ = await attemptFix(automatic: false)
         }
@@ -598,14 +675,15 @@ final class GuardState: ObservableObject {
     func testWebUILogin() async {
         loginTestResult = nil
         guard let url = WebUIURLValidator.validated(webuiURL) else {
-            loginTestResult = "Use a local Web UI URL (localhost, 127.0.0.1, or ::1)"
+            loginTestResult = "Use a local \(torrentClient.remoteTitle) URL (localhost, 127.0.0.1, or ::1)"
             return
         }
-        let ui = QBWebUI(baseURL: url, user: webuiUser, password: webuiPass)
-        if await ui.login() {
+        let remote = TorrentRemote(client: torrentClient, baseURL: url,
+                                   user: webuiUser, password: webuiPass)
+        if await remote.login() {
             loginTestResult = "Login works"
         } else {
-            loginTestResult = "Login failed — check user / password / Web UI"
+            loginTestResult = "Login failed — check user / password / \(torrentClient.remoteTitle)"
         }
     }
 
@@ -680,15 +758,17 @@ final class GuardState: ObservableObject {
     }
 
     private func pauseTorrentsIfNeeded() async {
-        guard pauseOnDrop, webuiEnabled, !webuiUser.isEmpty,
+        guard pauseOnDrop, webuiEnabled, remoteCredentialsReady,
               let url = WebUIURLValidator.validated(webuiURL) else { return }
-        let ui = QBWebUI(baseURL: url, user: webuiUser, password: webuiPass)
-        guard await ui.login() else { return }
-        if await ui.pauseAllTorrents() {
+        let client = torrentClient
+        let remote = TorrentRemote(client: client, baseURL: url,
+                                   user: webuiUser, password: webuiPass)
+        guard await remote.login() else { return }
+        if await remote.pauseAllTorrents() {
             lastAction = "VPN dropped — paused all torrents"
             if var snap = snapshot { snap.lastPaused = true; snapshot = snap }
             postNotification("Surfshark Guard — torrents paused",
-                             "The VPN tunnel went down, so qBittorrent was paused.")
+                             "The VPN tunnel went down, so \(client.title) was paused.")
         }
     }
 
@@ -703,7 +783,7 @@ final class GuardState: ObservableObject {
         let text: String
         switch snap.status {
         case .wrongBinding:
-            text = "qBittorrent is on \(snap.qbInterface ?? "no interface"), the tunnel is \(snap.tunnel?.iface ?? "?")"
+            text = "\(snap.client.title) is on \(snap.qbInterface ?? "no interface"), the tunnel is \(snap.tunnel?.iface ?? "?")"
         case .noTunnel:
             text = TunnelNotice.noTunnelBody(droppedFrom: droppedFrom)
         case .ok:
