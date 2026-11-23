@@ -265,6 +265,40 @@ final class ParsersTests: XCTestCase {
         XCTAssertTrue(gate.shouldPost())
     }
 
+    func testTunnelEvents() {
+        XCTAssertNil(TunnelEvent.between(previous: nil, current: nil))
+        XCTAssertNil(TunnelEvent.between(previous: "utun3", current: "utun3"))
+        XCTAssertEqual(TunnelEvent.between(previous: nil, current: "utun5"), .connected("utun5"))
+        XCTAssertEqual(TunnelEvent.between(previous: "utun3", current: nil), .dropped("utun3"))
+        XCTAssertEqual(TunnelEvent.between(previous: "utun3", current: "utun5"),
+                       .switched(from: "utun3", to: "utun5"))
+    }
+
+    func testTunnelNotices() {
+        let switched = TunnelNotice.text(event: .switched(from: "utun3", to: "utun5"),
+                                         tunnel: "utun5", bindingOK: true, rebound: false)
+        XCTAssertEqual(switched?.title, "Surfshark Guard — tunnel changed")
+        XCTAssertTrue(switched?.body.contains("utun3 → utun5") == true)
+
+        let reboundSwitch = TunnelNotice.text(event: .switched(from: "utun3", to: "utun5"),
+                                              tunnel: "utun5", bindingOK: false, rebound: true)
+        XCTAssertTrue(reboundSwitch?.body.contains("rebound") == true)
+
+        XCTAssertNotNil(TunnelNotice.text(event: .connected("utun5"), tunnel: "utun5",
+                                          bindingOK: true, rebound: false))
+        // Problems are covered by the existing problem notification.
+        XCTAssertNil(TunnelNotice.text(event: .switched(from: "utun3", to: "utun5"),
+                                       tunnel: "utun5", bindingOK: false, rebound: false))
+        XCTAssertNil(TunnelNotice.text(event: .dropped("utun3"), tunnel: nil,
+                                       bindingOK: false, rebound: false))
+        XCTAssertNil(TunnelNotice.text(event: nil, tunnel: "utun5",
+                                       bindingOK: true, rebound: false))
+        XCTAssertEqual(TunnelNotice.text(event: nil, tunnel: "utun5",
+                                         bindingOK: false, rebound: true)?.body,
+                       "qBittorrent is bound to utun5 again.")
+        XCTAssertTrue(TunnelNotice.noTunnelBody(droppedFrom: "utun3").contains("utun3"))
+    }
+
     func testWebUIRequiresSuccessfulHTTPResponses() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [URLProtocolStub.self]

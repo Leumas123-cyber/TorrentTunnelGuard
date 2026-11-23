@@ -95,6 +95,7 @@ This is the part I *can* describe from the source. If I got a detail wrong, read
 | `WebUI.swift` | Optional localhost login, live prefs, pause-all, plus a cheap reachability probe |
 | `Keychain.swift` | Web UI password in the macOS Keychain (migrates leftover UserDefaults) |
 | `GuardState.swift` | Timer (5 s default, with tolerance), `NWPathMonitor`, pause-on-drop, notifications, auto-fix, login-item toggle |
+| `TunnelEvents.swift` | Spots tunnel connect / change / drop between checks and words the notifications |
 | `Views.swift` | Menu and settings UI |
 | `OnboardingView.swift` | First-run checklist (VPN, tunnel, localhost Web UI, login test) |
 | `UpdateCheck.swift` | Compares this build to the latest GitHub Release tag (no Sparkle) |
@@ -128,6 +129,7 @@ Paths use **your** home directory at runtime. Nothing from my Mac is hardcoded.
 - **Web UI on:** `POST /api/v2/auth/login`, then read `GET /api/v2/app/preferences` for the live NIC, and `POST /api/v2/app/setPreferences` to rebind. Takes effect immediately.
 - **Web UI off:** write the ini (with a `.bak-…` next to it). qBittorrent must be quit first or it will overwrite the file when it exits. Auto-fix will **not** force-quit qBittorrent.
 - **Pause if down:** when the status flips from “has a tunnel” to “no tunnel”, the Web UI is asked to pause/stop all torrents (`/torrents/stop`, then `/torrents/pause` for older qB).
+- **Notifications:** problems (tunnel down, wrong binding) are announced once per episode. With *Tunnel changes and rebinding* on (Settings → Notifications), you also get a notice when the VPN connects, the tunnel changes (e.g. `utun3 → utun5`), or qBittorrent is rebound.
 
 **Watch** repeats `route` / `ifconfig` on a timer (default 5 seconds, never a tight loop) and also after `NWPathMonitor` path changes (debounced ~0.4 s). The timer has macOS coalescing tolerance and stretches in Low Power Mode. **Auto-fix** tries the Web UI, or the ini write once qBittorrent is already quit.
 

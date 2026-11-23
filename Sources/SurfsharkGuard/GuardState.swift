@@ -140,6 +140,11 @@ final class GuardState: ObservableObject {
     @Published var notifications: Bool {
         didSet { defaults.set(notifications, forKey: "notifications"); if notifications { askNotificationPermission() } }
     }
+    /// Informational notices (tunnel connected / changed, qBittorrent rebound).
+    /// Problem alerts only follow `notifications`.
+    @Published var tunnelChangeNotifications: Bool {
+        didSet { defaults.set(tunnelChangeNotifications, forKey: "tunnelChangeNotifications") }
+    }
     @Published var watchInterval: Double {
         didSet { defaults.set(watchInterval, forKey: "watchInterval"); rescheduleTimer() }
     }
@@ -193,11 +198,15 @@ final class GuardState: ObservableObject {
     private var isHydrating = true
     private var didCheckUpdate = false
     private var checkQueue = CheckRequestQueue()
+    /// Set by `attemptFix` when the binding was changed live through the Web UI
+    /// (the config-file path posts its own notification).
+    private var lastFixWasLive = false
 
     private init() {
         autoWatch = defaults.object(forKey: "autoWatch") as? Bool ?? true
         autoFix = defaults.object(forKey: "autoFix") as? Bool ?? false
         notifications = defaults.object(forKey: "notifications") as? Bool ?? true
+        tunnelChangeNotifications = defaults.object(forKey: "tunnelChangeNotifications") as? Bool ?? true
         watchInterval = defaults.object(forKey: "watchInterval") as? Double ?? 5
         webuiEnabled = defaults.bool(forKey: "webuiEnabled")
         webuiURL = defaults.string(forKey: "webuiURL") ?? "http://127.0.0.1:8080"
@@ -303,13 +312,26 @@ final class GuardState: ObservableObject {
         let previous = previousSnapshot?.status
         snapshot = snap
         recordChanges(from: previousSnapshot, to: snap)
+        let event = previousSnapshot.flatMap {
+            TunnelEvent.between(previous: $0.tunnel?.iface, current: snap.tunnel?.iface)
+        }
 
         if shouldPauseTorrents(previous: previous, current: snap.status) {
             await pauseTorrentsIfNeeded()
         }
         var fixApplied = false
+        lastFixWasLive = false
         if autoFix, snap.status == .wrongBinding {
             fixApplied = await attemptFix(automatic: true)
+        }
+        let reboundLive = fixApplied && lastFixWasLive
+        // A config-file fix already posted its own "binding fixed" notice.
+        let fixAlreadyNotified = fixApplied && !reboundLive
+        if tunnelChangeNotifications, !fixAlreadyNotified,
+           let notice = TunnelNotice.text(event: event, tunnel: snap.tunnel?.iface,
+                                          bindingOK: snap.status == .ok,
+                                          rebound: reboundLive) {
+            postNotification(notice.title, notice.body)
         }
 
         if snap.status != .wrongBinding {
@@ -323,7 +345,9 @@ final class GuardState: ObservableObject {
             notificationsEnabled: notifications,
             requested: notifyAbout
         ) {
-            notifyProblem(snap)
+            var droppedFrom: String?
+            if case .dropped(let iface)? = event { droppedFrom = iface }
+            notifyProblem(snap, droppedFrom: droppedFrom)
             lastNotifiedStatus = snap.status
         }
     }
@@ -399,6 +423,7 @@ final class GuardState: ObservableObject {
                 if await ui.setInterface(tunnel.iface, address: address) {
                     lastAction = "Web UI: binding set live to \(tunnel.iface) ✓"
                     lastError = nil
+                    lastFixWasLive = true
                     await checkNow()
                     return true
                 }
@@ -587,13 +612,13 @@ final class GuardState: ObservableObject {
         }
     }
 
-    private func notifyProblem(_ snap: Snapshot) {
+    private func notifyProblem(_ snap: Snapshot, droppedFrom: String? = nil) {
         let text: String
         switch snap.status {
         case .wrongBinding:
             text = "qBittorrent is on \(snap.qbInterface ?? "no interface"), the tunnel is \(snap.tunnel?.iface ?? "?")"
         case .noTunnel:
-            text = "No VPN tunnel — torrents should stay paused."
+            text = TunnelNotice.noTunnelBody(droppedFrom: droppedFrom)
         case .ok:
             return
         }
