@@ -29,7 +29,7 @@ else
   echo "▸ Signing with: $SIGNING_IDENTITY"
 fi
 
-# Full Xcode (or GitHub's macos-14 image) can run XCTest. Command Line Tools
+# Full Xcode (or GitHub's macos-15 image) can run XCTest. Command Line Tools
 # alone often cannot load XCTest/Testing — skip locally, fail in CI.
 if [ -n "${CI:-}" ] || [ -d /Applications/Xcode.app/Contents/Developer ]; then
   echo "▸ Testing…"

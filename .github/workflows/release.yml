@@ -23,7 +23,7 @@ concurrency:
 jobs:
   build:
     name: Build release DMGs
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     env:
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
@@ -141,7 +141,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 10
     permissions:
       contents: write

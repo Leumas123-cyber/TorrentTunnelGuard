@@ -141,7 +141,7 @@ cd surfshark-guard
 
 That script builds **two apps**: an arm64-only bundle and a universal (`lipo`) bundle. It strips debug info, remaps source paths so the binaries should not contain the builder’s `/Users/…` path, and makes two DMGs. If a Developer ID Application identity is available (or `CODESIGN_IDENTITY` is set), it signs with the hardened runtime and a trusted timestamp; otherwise it falls back to ad-hoc signing.
 
-A version tag (`git tag v1.4 && git push origin v1.4`) runs the same script on GitHub’s `macos-14` runner and attaches both DMGs plus SHA-256 checksums to that Release. You do not need to upload files from your laptop. Manual release runs always build the exact existing tag selected in the workflow.
+A version tag (`git tag v1.4 && git push origin v1.4`) runs the same script on GitHub’s `macos-15` runner and attaches both DMGs plus SHA-256 checksums to that Release. You do not need to upload files from your laptop. Manual release runs always build the exact existing tag selected in the workflow.
 
 ### Optional Developer ID signing and notarization
 
