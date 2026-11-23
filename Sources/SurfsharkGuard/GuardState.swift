@@ -170,6 +170,14 @@ final class GuardState: ObservableObject {
     @Published var checkUpdates: Bool {
         didSet { defaults.set(checkUpdates, forKey: "checkUpdates") }
     }
+    @Published var portForwarding: Bool {
+        didSet { defaults.set(portForwarding, forKey: "portForwarding"); restartPortForwarding() }
+    }
+    @Published var natpmpGateway: String {
+        didSet { defaults.set(natpmpGateway, forKey: "natpmpGateway") }
+    }
+    @Published var forwardedPort: UInt16?
+    @Published var portForwardMessage: String?
     @Published var updateAvailable: UpdateInfo?
     @Published var updateCheckMessage: String?
     @Published var loginTestResult: String?
@@ -187,6 +195,7 @@ final class GuardState: ObservableObject {
     private var isHydrating = true
     private var didCheckUpdate = false
     private var checkQueue = CheckRequestQueue()
+    private var portForwardTask: Task<Void, Never>?
 
     private init() {
         autoWatch = defaults.object(forKey: "autoWatch") as? Bool ?? true
@@ -201,6 +210,8 @@ final class GuardState: ObservableObject {
         pauseOnDrop = defaults.object(forKey: "pauseOnDrop") as? Bool ?? true
         onboardingDone = defaults.bool(forKey: "onboardingDone")
         checkUpdates = defaults.object(forKey: "checkUpdates") as? Bool ?? true
+        portForwarding = defaults.bool(forKey: "portForwarding")
+        natpmpGateway = defaults.string(forKey: "natpmpGateway") ?? ""
         isHydrating = false
 
         qBQuitObserver = NotificationCenter.default.addObserver(
@@ -293,7 +304,13 @@ final class GuardState: ObservableObject {
     private func performCheck(notifyAbout: Bool) async {
         let snap = await gather()
         let previous = snapshot?.status
+        let previousTunnel = snapshot?.tunnel?.iface
         snapshot = snap
+
+        // A new or lost tunnel means a new mapping — don't wait for the renew timer.
+        if portForwarding, snap.tunnel?.iface != previousTunnel {
+            restartPortForwarding()
+        }
 
         if shouldPauseTorrents(previous: previous, current: snap.status) {
             await pauseTorrentsIfNeeded()
@@ -528,6 +545,76 @@ final class GuardState: ObservableObject {
             loginTestResult = "Login works"
         } else {
             loginTestResult = "Login failed — check user / password / Web UI"
+        }
+    }
+
+    // MARK: Port forwarding (NAT-PMP, e.g. Proton VPN)
+
+    private func restartPortForwarding() {
+        portForwardTask?.cancel()
+        portForwardTask = nil
+        guard portForwarding else {
+            forwardedPort = nil
+            portForwardMessage = nil
+            return
+        }
+        portForwardTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.renewPortForwarding()
+                try? await Task.sleep(nanoseconds: UInt64(NATPMP.renewInterval * 1_000_000_000))
+            }
+        }
+    }
+
+    /// Asks the VPN gateway for a port (or renews it) and puts it into
+    /// qBittorrent. Runs every 45 s because Proton drops a mapping after 60 s.
+    func renewPortForwarding() async {
+        guard portForwarding else { return }
+        guard let tunnel = snapshot?.tunnel else {
+            forwardedPort = nil
+            portForwardMessage = "Waiting for the VPN tunnel"
+            return
+        }
+        guard let gateway = NATPMP.gateway(override: natpmpGateway, tunnelIP: tunnel.ip) else {
+            forwardedPort = nil
+            portForwardMessage = "Enter the gateway as an IPv4 address (Proton: 10.2.0.1)"
+            return
+        }
+        let iface = tunnel.iface
+        let result = await Task.detached(priority: .utility) {
+            NATPMPClient.mapPort(gateway: gateway, interface: iface)
+        }.value
+        guard portForwarding, snapshot?.tunnel?.iface == iface else { return }
+        switch result {
+        case .failure(let failure):
+            forwardedPort = nil
+            portForwardMessage = "No port: \(failure.text)"
+        case .success(let port):
+            forwardedPort = port
+            await applyListenPort(Int(port))
+        }
+    }
+
+    private func applyListenPort(_ port: Int) async {
+        guard webuiEnabled, !webuiUser.isEmpty,
+              let url = WebUIURLValidator.validated(webuiURL) else {
+            portForwardMessage = "Port \(port) — turn on the Web UI below to set it automatically"
+            return
+        }
+        let ui = QBWebUI(baseURL: url, user: webuiUser, password: webuiPass)
+        guard await ui.login() else {
+            portForwardMessage = "Port \(port) — qBittorrent Web UI not reachable"
+            return
+        }
+        if await ui.currentListenPort() == port {
+            portForwardMessage = "Port \(port) is set in qBittorrent"
+            return
+        }
+        if await ui.setListenPort(port) {
+            portForwardMessage = "Port \(port) is set in qBittorrent"
+            lastAction = "Port forwarding: qBittorrent now listens on \(port)"
+        } else {
+            portForwardMessage = "Port \(port) — could not set it in qBittorrent"
         }
     }
 

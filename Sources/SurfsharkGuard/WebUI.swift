@@ -144,6 +144,35 @@ struct QBWebUI {
         }
     }
 
+    /// Current incoming-connections port (`listen_port`).
+    func currentListenPort() async -> Int? {
+        guard WebUIURLValidator.isAllowed(baseURL) else { return nil }
+        var request = URLRequest(url: Self.endpoint("/api/v2/app/preferences", on: baseURL))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        guard let reply = try? await session.data(for: request),
+              let code = (reply.1 as? HTTPURLResponse)?.statusCode,
+              (200...299).contains(code),
+              let json = try? JSONSerialization.jsonObject(with: reply.0) as? [String: Any]
+        else { return nil }
+        return (json["listen_port"] as? NSNumber)?.intValue
+    }
+
+    /// Sets the listening port live. Random port and UPnP are turned off so
+    /// qBittorrent keeps the forwarded port instead of picking its own.
+    func setListenPort(_ port: Int) async -> Bool {
+        guard WebUIURLValidator.isAllowed(baseURL), (1...65535).contains(port) else { return false }
+        let prefs: [String: Any] = ["listen_port": port, "random_port": false, "upnp": false]
+        guard let json = try? JSONSerialization.data(withJSONObject: prefs),
+              let jsonText = String(data: json, encoding: .utf8)
+        else { return false }
+        do {
+            let result = try await post("/api/v2/app/setPreferences", form: ["json": jsonText])
+            return (200...299).contains(result.code)
+        } catch { return false }
+    }
+
     /// qB 4.x uses pause; qB 5.x uses stop.
     func pauseAllTorrents() async -> Bool {
         guard WebUIURLValidator.isAllowed(baseURL) else { return false }

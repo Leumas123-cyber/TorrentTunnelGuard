@@ -50,6 +50,7 @@ swiftc -parse-as-library -O -target arm64-apple-macos13 \
   Sources/SurfsharkGuard/VPNProvider.swift \
   Sources/SurfsharkGuard/UpdateCheck.swift \
   Sources/SurfsharkGuard/MenuBarTooltip.swift \
+  Sources/SurfsharkGuard/PortForwarding.swift \
   scripts/selftest.swift
 ./.build/selftest
 
