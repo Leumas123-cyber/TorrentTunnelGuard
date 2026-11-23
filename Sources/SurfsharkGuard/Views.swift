@@ -129,22 +129,22 @@ struct GuardView: View {
     private var statusText: String {
         guard let snap = state.snapshot else { return "Run the first connection check." }
         let time = snap.checkedAt.formatted(date: .omitted, time: .shortened)
-        return "\(snap.status.headline) · checked \(time)"
+        return "\(snap.status.headline(for: snap.client)) · checked \(time)"
     }
 
     private var primaryActions: some View {
         HStack(spacing: 8) {
             if state.snapshot?.status == .wrongBinding {
                 Button {
-                    Task { await state.quitQBittorrentAndFix() }
+                    Task { await state.quitClientAndFix() }
                 } label: {
-                    Label("Quit qBittorrent & fix", systemImage: "shield.checkered")
+                    Label("Quit \(state.torrentClient.title) & fix", systemImage: "shield.checkered")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .disabled(state.checking)
-                .help("Gracefully quits qBittorrent, then applies the safe VPN binding")
+                .help("Gracefully quits \(state.torrentClient.title), then applies the safe VPN binding")
             }
 
             Button {
@@ -227,9 +227,9 @@ struct GuardView: View {
     private var detailRows: some View {
         VStack(alignment: .leading, spacing: 5) {
             row("Tunnel", tunnelText)
-            row("qBittorrent", qbtText)
+            row(state.torrentClient.title, qbtText)
             if state.webuiEnabled {
-                row("Web UI", webUIText)
+                row(state.torrentClient.remoteTitle, webUIText)
             }
             if let path = state.snapshot?.configPath ?? state.snapshot?.writeTarget {
                 row("Config", abbreviated(path))
@@ -422,10 +422,20 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("Torrent app") {
+                Picker("Client", selection: $state.torrentClient) {
+                    ForEach(TorrentClient.allCases) { client in
+                        Text(client.title).tag(client)
+                    }
+                }
+                Text(clientHelp)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Automatic fix") {
                 Toggle("Fix binding automatically", isOn: $state.autoFix)
                 Toggle("Pause torrents if the VPN drops", isOn: $state.pauseOnDrop)
-                Text("Live via the Web UI below, otherwise in the config file once qBittorrent has quit — it is never force-quit. Pause uses the Web UI (qB 4 pause / qB 5 stop).")
+                Text(autoFixHelp)
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -482,13 +492,15 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("qBittorrent Web UI (for live fix)") {
-                Toggle("Use Web UI", isOn: $state.webuiEnabled)
+            Section(remoteSectionTitle) {
+                Toggle("Use \(state.torrentClient.remoteTitle)", isOn: $state.webuiEnabled)
                 Group {
                     TextField("URL", text: $state.webuiURL)
                         .textFieldStyle(.roundedBorder)
-                    TextField("User", text: $state.webuiUser)
-                        .textFieldStyle(.roundedBorder)
+                    if state.torrentClient.usesUserName {
+                        TextField("User", text: $state.webuiUser)
+                            .textFieldStyle(.roundedBorder)
+                    }
                     SecureField("Password", text: $state.webuiPass)
                         .textFieldStyle(.roundedBorder)
                     HStack {
@@ -508,7 +520,7 @@ struct SettingsView: View {
                                 Label("Test connection", systemImage: "network")
                             }
                         }
-                        .disabled(state.webuiUser.isEmpty || testingWebUI)
+                        .disabled(!state.remoteCredentialsReady || testingWebUI)
 
                         if let result = state.loginTestResult {
                             Label(result, systemImage: result == "Login works"
@@ -529,7 +541,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Text("In qBittorrent: Preferences → Web UI. Keep it on 127.0.0.1 — nothing leaves this Mac. The password is stored in the macOS Keychain, not in UserDefaults.")
+                Text(remoteHelp)
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -537,5 +549,47 @@ struct SettingsView: View {
         .frame(width: 500, height: 680)
         .animation(.easeInOut(duration: 0.2), value: state.loginTestResult)
         .animation(.easeInOut(duration: 0.2), value: state.webuiEnabled)
+    }
+
+    private var clientHelp: String {
+        switch state.torrentClient {
+        case .qbittorrent:
+            return "Binds qBittorrent to the tunnel interface (Session\\Interface in qBittorrent.ini or live via the Web UI)."
+        case .transmission:
+            return "Binds Transmission to the tunnel IP (BindAddressIPv4 for the Mac app, bind-address-ipv4 in settings.json for transmission-daemon). Transmission reads it at start, so a fix needs a restart."
+        case .deluge:
+            return "Binds Deluge to the tunnel (outgoing_interface and listen_interface in core.conf, or live via the Web UI)."
+        }
+    }
+
+    private var autoFixHelp: String {
+        switch state.torrentClient {
+        case .qbittorrent:
+            return "Live via the Web UI below, otherwise in the config file once qBittorrent has quit — it is never force-quit. Pause uses the Web UI (qB 4 pause / qB 5 stop)."
+        case .transmission:
+            return "Written to the config once Transmission has quit — it is never force-quit. Pause stops all torrents via the RPC."
+        case .deluge:
+            return "Live via the Web UI below, otherwise in core.conf once Deluge has quit — it is never force-quit. Pause uses the Web UI."
+        }
+    }
+
+    private var remoteSectionTitle: String {
+        switch state.torrentClient {
+        case .qbittorrent: return "qBittorrent Web UI (for live fix)"
+        case .transmission: return "Transmission remote (for pause)"
+        case .deluge: return "Deluge Web UI (for live fix)"
+        }
+    }
+
+    private var remoteHelp: String {
+        let keychain = "The password is stored in the macOS Keychain, not in UserDefaults."
+        switch state.torrentClient {
+        case .qbittorrent:
+            return "In qBittorrent: Preferences → Web UI. Keep it on 127.0.0.1 — nothing leaves this Mac. " + keychain
+        case .transmission:
+            return "In Transmission: Settings → Remote → Enable remote access. User and password only if you turned on authentication. " + keychain
+        case .deluge:
+            return "Start deluge-web (default port 8112) and connect it to your daemon. Deluge's Web UI only has a password. " + keychain
+        }
     }
 }

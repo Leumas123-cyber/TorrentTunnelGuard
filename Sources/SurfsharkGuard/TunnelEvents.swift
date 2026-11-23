@@ -34,28 +34,28 @@ enum TunnelNotice {
     /// binding is already covered by the problem notification, so posting here
     /// too would double up.
     static func text(event: TunnelEvent?, tunnel: String?, bindingOK: Bool,
-                     rebound: Bool) -> NoticeText? {
+                     rebound: Bool, clientName: String = "qBittorrent") -> NoticeText? {
         guard bindingOK || rebound else { return nil }
         switch event {
         case .connected(let iface):
             return NoticeText(
                 title: "Surfshark Guard — VPN connected",
                 body: rebound
-                    ? "Tunnel \(iface) is up. qBittorrent was rebound to it."
-                    : "Tunnel \(iface) is up and qBittorrent is bound to it.")
+                    ? "Tunnel \(iface) is up. \(clientName) was rebound to it."
+                    : "Tunnel \(iface) is up and \(clientName) is bound to it.")
         case let .switched(old, new):
             return NoticeText(
                 title: "Surfshark Guard — tunnel changed",
                 body: rebound
-                    ? "\(old) → \(new). qBittorrent was rebound to the new tunnel."
-                    : "\(old) → \(new). qBittorrent is on the new tunnel.")
+                    ? "\(old) → \(new). \(clientName) was rebound to the new tunnel."
+                    : "\(old) → \(new). \(clientName) is on the new tunnel.")
         case .dropped:
             return nil
         case nil:
             guard rebound, let tunnel else { return nil }
             return NoticeText(
-                title: "Surfshark Guard — qBittorrent rebound",
-                body: "qBittorrent is bound to \(tunnel) again.")
+                title: "Surfshark Guard — \(clientName) rebound",
+                body: "\(clientName) is bound to \(tunnel) again.")
         }
     }
 
