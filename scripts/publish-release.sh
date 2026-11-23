@@ -28,7 +28,7 @@ Unofficial menu-bar helper. Builds use Developer ID signing and notarization
 when all Apple release secrets are configured; otherwise they are
 ad-hoc signed and require right-click → Open the first time.
 
-These DMGs were built by GitHub Actions (macos-14), not a personal Mac.
+These DMGs were built by GitHub Actions (macos-15), not a personal Mac.
 
 ## Downloads (pick one)
 - **SurfsharkGuard-${VERSION}-arm64.dmg** — Apple Silicon only
