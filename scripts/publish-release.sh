@@ -41,6 +41,14 @@ Still lawful-use only. Not a Surfshark, Mullvad, Proton, or qBittorrent product.
 EOF
 )"
 
+# Per-version notes (what's new) go above the standard download text.
+NOTES_FILE="scripts/release-notes/${TAG}.md"
+if [ -f "$NOTES_FILE" ]; then
+  NOTES="$(cat "$NOTES_FILE")
+
+${NOTES}"
+fi
+
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Updating existing release ${TAG}"
   gh release upload "$TAG" "$ARM" "$UNI" "$CHECKSUMS" --clobber
