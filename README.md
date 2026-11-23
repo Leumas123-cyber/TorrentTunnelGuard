@@ -71,6 +71,8 @@ macOS 13 or newer. The app inside either image is still named **Surfshark Guard*
 3. Turn on **Watch**. Optionally **Auto-fix**, **Pause if down**, and **Alerts**. Settings can check GitHub Releases for a newer tag (download page only — nothing is installed automatically).
 4. For live rebinding while qBittorrent is running, enable qBittorrent’s Web UI on `127.0.0.1` and type those credentials under **Settings**. The password is stored in the **macOS Keychain** on your Mac (older UserDefaults copies are migrated once, then deleted). Requests only go to localhost. If the menu says **Web UI offline / check**, qBittorrent’s Web UI is not answering. The menu prefers the **live** Web UI binding over a stale `qBittorrent.ini`.
 
+**Leak test** (button in the menu) asks a public IP echo service (`api.ipify.org`, fallback `ipv4.icanhazip.com`) once through the tunnel and once through Wi‑Fi/Ethernet, then compares. Different IPs = no leak. If the normal connection is blocked by the VPN’s kill switch, that also counts as no leak. Same IP = the tunnel is not hiding you. It only runs when you press the button.
+
 **Quit qB & bind** quits qBittorrent normally (not force-killed) and writes the tunnel name into `qBittorrent.ini`.
 
 | Icon | Meaning |
@@ -97,10 +99,11 @@ This is the part I *can* describe from the source. If I got a detail wrong, read
 | `GuardState.swift` | Timer (5 s default, with tolerance), `NWPathMonitor`, pause-on-drop, notifications, auto-fix, login-item toggle |
 | `TunnelEvents.swift` | Spots tunnel connect / change / drop between checks and words the notifications |
 | `Views.swift` | Menu and settings UI |
+| `LeakTest.swift` | On-demand leak test: public IP via tunnel vs. Wi‑Fi/Ethernet (`curl --interface`) |
 | `OnboardingView.swift` | First-run checklist (VPN, tunnel, localhost Web UI, login test) |
 | `UpdateCheck.swift` | Compares this build to the latest GitHub Release tag (no Sparkle) |
 
-There are no servers of mine, no analytics, and no account. The app only talks to your Mac and, if you enable it, `http://127.0.0.1` on qBittorrent.
+There are no servers of mine, no analytics, and no account. The app only talks to your Mac and, if you enable it, `http://127.0.0.1` on qBittorrent. Exceptions you trigger yourself: the GitHub update check, and the **Leak test** button, which asks `api.ipify.org` (or `ipv4.icanhazip.com`) for your public IP.
 
 ### How it picks the tunnel
 
