@@ -32,6 +32,7 @@ struct GuardView: View {
 
             primaryActions
             quickControls
+            LeakTestCard()
 
             DisclosureGroup(isExpanded: $showDetails) {
                 VStack(alignment: .leading, spacing: 9) {
