@@ -93,6 +93,10 @@ This is the part I *can* describe from the source. If I got a detail wrong, read
 | `Parsers.swift` | Parses `route` / `netstat` / `ifconfig` text and edits `qBittorrent.ini` |
 | `QBittorrent.swift` | Finds the newest qBittorrent config on **this** user account and writes a backup + new binding |
 | `WebUI.swift` | Optional localhost login, live prefs, pause-all, plus a cheap reachability probe |
+| `TorrentClient.swift` | Client choice (qBittorrent / Transmission / Deluge), binding resolution, and careful text edits of JSON config files |
+| `Transmission.swift` | Transmission app prefs / daemon `settings.json`, plus a minimal RPC client (login test, stop all) |
+| `Deluge.swift` | Deluge `core.conf`, plus a minimal Web UI JSON-RPC client (live rebind, pause all) |
+| `TorrentRemote.swift` | Routes login, live binding, rebind and pause to the selected client |
 | `Keychain.swift` | Web UI password in the macOS Keychain (migrates leftover UserDefaults) |
 | `GuardState.swift` | Timer (5 s default, with tolerance), `NWPathMonitor`, pause-on-drop, notifications, auto-fix, login-item toggle |
 | `Views.swift` | Menu and settings UI |
@@ -128,6 +132,22 @@ Paths use **your** home directory at runtime. Nothing from my Mac is hardcoded.
 - **Web UI on:** `POST /api/v2/auth/login`, then read `GET /api/v2/app/preferences` for the live NIC, and `POST /api/v2/app/setPreferences` to rebind. Takes effect immediately.
 - **Web UI off:** write the ini (with a `.bak-…` next to it). qBittorrent must be quit first or it will overwrite the file when it exits. Auto-fix will **not** force-quit qBittorrent.
 - **Pause if down:** when the status flips from “has a tunnel” to “no tunnel”, the Web UI is asked to pause/stop all torrents (`/torrents/stop`, then `/torrents/pause` for older qB).
+
+### Transmission and Deluge
+
+Pick the client under **Settings → Torrent app**. Each client keeps its own remote URL, user and password (the passwords sit in the Keychain under the same service, one account per client). qBittorrent stays the default and keeps its old settings.
+
+**Transmission** binds by IPv4 address, not by interface name, so the app writes the tunnel IP:
+
+- Transmission.app: `BindAddressIPv4` in its preferences (`org.m0k.transmission`).
+- transmission-daemon: `bind-address-ipv4` (or `bind_address_ipv4` in 4.1) in `settings.json` under `~/Library/Application Support/transmission-daemon/` or `~/.config/transmission-daemon/`, with a `.bak-…` next to it.
+
+Transmission’s RPC cannot change the bind address, so a fix always needs Transmission to be quit and started again. The RPC (default `http://127.0.0.1:9091/transmission/rpc`, user and password only if authentication is on) is used for the login test and for **Pause if down** (`torrent-stop` on every torrent).
+
+**Deluge** uses `outgoing_interface` (the tunnel name) and `listen_interface` (the tunnel IP) in `~/.config/deluge/core.conf`. An empty `listen_interface` means “listen everywhere” and counts as a leak risk.
+
+- **Web UI on** (deluge-web, default `http://127.0.0.1:8112`, password only): `auth.login`, then `core.get_config_values` for the live binding and `core.set_config` to rebind without a restart. **Pause if down** calls `core.pause_torrents`.
+- **Web UI off:** write `core.conf` (with a `.bak-…`) once deluged / Deluge has quit, because Deluge writes the file back when it exits.
 
 **Watch** repeats `route` / `ifconfig` on a timer (default 5 seconds, never a tight loop) and also after `NWPathMonitor` path changes (debounced ~0.4 s). The timer has macOS coalescing tolerance and stretches in Low Power Mode. **Auto-fix** tries the Web UI, or the ini write once qBittorrent is already quit.
 
@@ -176,8 +196,8 @@ The published source and the Release DMG are meant to contain no home-folder pat
 
 ## Limits
 
-- Only qBittorrent is rebound. Other apps need Surfshark’s own kill switch or a firewall.
-- An ini-file fix applies on the next qBittorrent start unless the Web UI is enabled.
+- Only the selected torrent client (qBittorrent, Transmission or Deluge) is rebound. Other apps need Surfshark’s own kill switch or a firewall.
+- An ini-file fix applies on the next qBittorrent start unless the Web UI is enabled. Transmission always needs a restart; Deluge needs one unless its Web UI is enabled.
 - Intel Macs need macOS 13+. The helper does not run on older Intel-only macOS releases.
 
 ## License
