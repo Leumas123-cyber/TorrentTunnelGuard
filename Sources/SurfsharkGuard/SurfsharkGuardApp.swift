@@ -25,6 +25,12 @@ struct SurfsharkGuardApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Surfshark Guard — History", id: "sg-history") {
+            HistoryView()
+                .environmentObject(state)
+        }
+        .windowResizability(.contentSize)
+
         Window("Surfshark Guard — Setup", id: "sg-onboarding") {
             OnboardingView()
                 .environmentObject(state)

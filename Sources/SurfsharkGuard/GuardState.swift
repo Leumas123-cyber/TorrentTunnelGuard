@@ -120,8 +120,14 @@ final class GuardState: ObservableObject {
 
     @Published var snapshot: Snapshot?
     @Published var checking = false
-    @Published var lastAction: String?
-    @Published var lastError: String?
+    @Published var lastAction: String? {
+        didSet { if let lastAction { record(.action, lastAction) } }
+    }
+    @Published var lastError: String? {
+        didSet { if let lastError, lastError != oldValue { record(.problem, lastError) } }
+    }
+    /// Size-capped history of tunnel changes and what the app did.
+    @Published private(set) var activity: ActivityLog
     private var lastNotifiedStatus: GuardStatus?
     private var autoFixBlockedNotification = NotificationEpisodeGate()
 
@@ -201,6 +207,7 @@ final class GuardState: ObservableObject {
         pauseOnDrop = defaults.object(forKey: "pauseOnDrop") as? Bool ?? true
         onboardingDone = defaults.bool(forKey: "onboardingDone")
         checkUpdates = defaults.object(forKey: "checkUpdates") as? Bool ?? true
+        activity = ActivityLog.decode(defaults.data(forKey: Self.activityKey))
         isHydrating = false
 
         qBQuitObserver = NotificationCenter.default.addObserver(
@@ -292,8 +299,10 @@ final class GuardState: ObservableObject {
 
     private func performCheck(notifyAbout: Bool) async {
         let snap = await gather()
-        let previous = snapshot?.status
+        let previousSnapshot = snapshot
+        let previous = previousSnapshot?.status
         snapshot = snap
+        recordChanges(from: previousSnapshot, to: snap)
 
         if shouldPauseTorrents(previous: previous, current: snap.status) {
             await pauseTorrentsIfNeeded()
@@ -515,6 +524,33 @@ final class GuardState: ObservableObject {
         }
         monitor.start(queue: DispatchQueue.global(qos: .utility))
         pathMonitor = monitor
+    }
+
+    private static let activityKey = "activityLog"
+
+    func record(_ kind: ActivityEntry.Kind, _ message: String) {
+        guard activity.append(kind, message) else { return }
+        defaults.set(activity.encoded(), forKey: Self.activityKey)
+    }
+
+    func clearActivity() {
+        activity.clear()
+        defaults.removeObject(forKey: Self.activityKey)
+    }
+
+    private func recordChanges(from previous: Snapshot?, to current: Snapshot) {
+        if let text = tunnelChangeMessage(
+            previousIface: previous?.tunnel?.iface,
+            previousIP: previous?.tunnel?.ip,
+            currentIface: current.tunnel?.iface,
+            currentIP: current.tunnel?.ip,
+            firstCheck: previous == nil
+        ) {
+            record(.tunnel, text)
+        }
+        if previous?.status != current.status {
+            record(.status, current.status.headline)
+        }
     }
 
     func testWebUILogin() async {

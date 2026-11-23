@@ -329,6 +329,14 @@ struct GuardView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            Button {
+                openSettingsOrOnboarding("sg-history")
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .padding(.leading, 10)
             Spacer()
             Button {
                 NSApplication.shared.terminate(nil)
