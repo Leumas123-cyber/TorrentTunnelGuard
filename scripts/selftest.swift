@@ -195,6 +195,27 @@ print("  info writeTarget: \(target)")
 expect(target.contains("qBittorrent.ini"), "write target is an ini path")
 expect(!target.contains("/Users/anonymous/.zcode"), "no leftover author path")
 
+print("== tunnel change notices ==")
+expect(TunnelEvent.between(previous: nil, current: nil) == nil, "no tunnel twice: no event")
+expect(TunnelEvent.between(previous: "utun3", current: "utun3") == nil, "same tunnel: no event")
+expect(TunnelEvent.between(previous: nil, current: "utun5") == .connected("utun5"), "tunnel came up")
+expect(TunnelEvent.between(previous: "utun3", current: nil) == .dropped("utun3"), "tunnel dropped")
+expect(TunnelEvent.between(previous: "utun3", current: "utun5")
+       == .switched(from: "utun3", to: "utun5"), "tunnel switched")
+expect(TunnelNotice.text(event: .switched(from: "utun3", to: "utun5"), tunnel: "utun5",
+                         bindingOK: true, rebound: false)?.body.contains("utun3 → utun5") == true,
+       "switch notice names both tunnels")
+expect(TunnelNotice.text(event: .switched(from: "utun3", to: "utun5"), tunnel: "utun5",
+                         bindingOK: false, rebound: false) == nil,
+       "wrong binding left to the problem notice")
+expect(TunnelNotice.text(event: .dropped("utun3"), tunnel: nil,
+                         bindingOK: false, rebound: false) == nil, "drop left to the problem notice")
+expect(TunnelNotice.text(event: nil, tunnel: "utun5", bindingOK: false, rebound: true)?
+       .title.contains("rebound") == true, "live rebind without tunnel change")
+expect(TunnelNotice.text(event: nil, tunnel: "utun5", bindingOK: true, rebound: false) == nil,
+       "steady state: no notice")
+expect(TunnelNotice.noTunnelBody(droppedFrom: "utun3").contains("utun3"), "drop body names tunnel")
+
 print("== interval policy ==")
 func effectiveInterval(watch: Double, lowPower: Bool, thermalSerious: Bool) -> Double {
     let base = max(watch, 5)

@@ -420,6 +420,14 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("Notifications") {
+                Toggle("Show notifications", isOn: $state.notifications)
+                Toggle("Tunnel changes and rebinding", isOn: $state.tunnelChangeNotifications)
+                    .disabled(!state.notifications)
+                Text("Problems (tunnel down, wrong binding) are always announced while notifications are on. The second switch adds a notice when the VPN connects, the tunnel changes (e.g. utun3 → utun5) or qBittorrent is rebound.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 Toggle("Check GitHub Releases on launch", isOn: $state.checkUpdates)
                 HStack {
