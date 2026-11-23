@@ -228,6 +228,17 @@ expect(effectiveInterval(watch: 5, lowPower: false, thermalSerious: false) == 5,
 expect(effectiveInterval(watch: 5, lowPower: true, thermalSerious: false) == 15, "low power stretch")
 expect(effectiveInterval(watch: 5, lowPower: false, thermalSerious: true) == 30, "thermal stretch")
 
+print("== port forwarding (NAT-PMP) ==")
+expect(NATPMP.mappingRequest(proto: .udp, privatePort: 0, publicPort: 1, lifetime: 60)
+       == [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 60], "request matches natpmpc -a 1 0 udp 60")
+let natpmpReply: [UInt8] = [0, 130, 0, 0, 0, 0, 0x10, 0, 0, 0, 0xD4, 0x31, 0, 0, 0, 60]
+if case .success(let mapping) = NATPMP.parseMappingResponse(natpmpReply, expecting: .tcp) {
+    expect(mapping.publicPort == 54321, "parses mapped port")
+} else {
+    expect(false, "parses mapped port")
+}
+expect(NATPMP.gateway(override: "", tunnelIP: "10.2.0.2") == "10.2.0.1", "Proton gateway guess")
+
 if failed == 0 {
     print("\nALL SELFTESTS PASSED")
     exit(0)

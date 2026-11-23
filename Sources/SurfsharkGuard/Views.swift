@@ -437,6 +437,23 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("Port forwarding (NAT-PMP)") {
+                Toggle("Set the forwarded port in qBittorrent", isOn: $state.portForwarding)
+                TextField("Gateway (empty = automatic)", text: $state.natpmpGateway,
+                          prompt: Text("10.2.0.1"))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!state.portForwarding)
+                if state.portForwarding, let message = state.portForwardMessage {
+                    Label(message, systemImage: state.forwardedPort != nil
+                          ? "arrow.left.arrow.right.circle.fill"
+                          : "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(state.forwardedPort != nil ? Color.green : Color.orange)
+                }
+                Text("For VPNs that forward a port over NAT-PMP, such as Proton VPN on a P2P server with port forwarding turned on. Surfshark and Mullvad don't offer it. The port is renewed every 45 s and set live through the Web UI below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 Toggle("Check GitHub Releases on launch", isOn: $state.checkUpdates)
                 HStack {

@@ -136,6 +136,12 @@ Paths use **your** home directory at runtime. Nothing from my Mac is hardcoded.
 
 **Watch** repeats `route` / `ifconfig` on a timer (default 5 seconds, never a tight loop) and also after `NWPathMonitor` path changes (debounced ~0.4 s). The timer has macOS coalescing tolerance and stretches in Low Power Mode. **Auto-fix** tries the Web UI, or the ini write once qBittorrent is already quit.
 
+### Port forwarding (optional, off by default)
+
+Some VPNs hand out one incoming port over NAT-PMP. Proton VPN does this on P2P servers when port forwarding is turned on in its app or WireGuard config; Surfshark and Mullvad don’t offer it.
+
+With **Settings → Port forwarding** on, the app sends the same requests as Proton’s `natpmpc -a 1 0 udp 60` / `… tcp 60` guide to the gateway (default: `x.y.z.1` of the tunnel IP, so `10.2.0.1` for Proton) through the tunnel interface only, renews them every 45 seconds, and sets qBittorrent’s `listen_port` through the Web UI (random port and UPnP off). It needs the Web UI; without it the port is only shown so you can enter it by hand.
+
 ### Build (if you don’t trust the DMG)
 
 ```bash
