@@ -393,7 +393,8 @@ final class GuardState: ObservableObject {
         if tunnelChangeNotifications, !fixAlreadyNotified,
            let notice = TunnelNotice.text(event: event, tunnel: snap.tunnel?.iface,
                                           bindingOK: snap.status == .ok,
-                                          rebound: reboundLive) {
+                                          rebound: reboundLive,
+                                          clientName: torrentClient.title) {
             postNotification(notice.title, notice.body)
         }
 
@@ -668,7 +669,7 @@ final class GuardState: ObservableObject {
             record(.tunnel, text)
         }
         if previous?.status != current.status {
-            record(.status, current.status.headline)
+            record(.status, current.status.headline(for: current.client))
         }
     }
 
@@ -735,6 +736,10 @@ final class GuardState: ObservableObject {
     }
 
     private func applyListenPort(_ port: Int) async {
+        guard torrentClient == .qbittorrent else {
+            portForwardMessage = "Port \(port) — set it as the listening port in \(torrentClient.title)"
+            return
+        }
         guard webuiEnabled, !webuiUser.isEmpty,
               let url = WebUIURLValidator.validated(webuiURL) else {
             portForwardMessage = "Port \(port) — turn on the Web UI below to set it automatically"
